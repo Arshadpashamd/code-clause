@@ -1,0 +1,2418 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Customer Lifetime Value Modeling"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Dataset: https://www.kaggle.com/vijayuv/onlineretail"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/anaconda3/lib/python3.6/site-packages/statsmodels/tools/_testing.py:19: FutureWarning: pandas.util.testing is deprecated. Use the functions in the public API at pandas.testing instead.\n",
+      "  import pandas.util.testing as tm\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "import lifetimes\n",
+    "%matplotlib inline\n",
+    "\n",
+    "import warnings\n",
+    "warnings.filterwarnings(\"ignore\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "pd.set_option('display.max_rows', 500)\n",
+    "pd.set_option('display.max_columns', 500)\n",
+    "pd.set_option('display.width', 1000)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Probablistic Model: BG/NBD, Gamma-Gamma Model\n",
+    "LTV = expected number of transactions * revenue per transactions * margin    \n",
+    "- BG/NBD model: predict 1) expected number of transactions; 2) probability of being alive    \n",
+    "- Gamma-Gamma model: predict expected monetary value per transaction    \n",
+    "- Margin is defined by business, e.g., discount, campaign, something relates to the price"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>InvoiceNo</th>\n",
+       "      <th>StockCode</th>\n",
+       "      <th>Description</th>\n",
+       "      <th>Quantity</th>\n",
+       "      <th>InvoiceDate</th>\n",
+       "      <th>UnitPrice</th>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th>Country</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>536365</td>\n",
+       "      <td>85123A</td>\n",
+       "      <td>WHITE HANGING HEART T-LIGHT HOLDER</td>\n",
+       "      <td>6</td>\n",
+       "      <td>2010-12-01 08:26</td>\n",
+       "      <td>2.55</td>\n",
+       "      <td>17850.0</td>\n",
+       "      <td>United Kingdom</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>536365</td>\n",
+       "      <td>71053</td>\n",
+       "      <td>WHITE METAL LANTERN</td>\n",
+       "      <td>6</td>\n",
+       "      <td>2010-12-01 08:26</td>\n",
+       "      <td>3.39</td>\n",
+       "      <td>17850.0</td>\n",
+       "      <td>United Kingdom</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>536365</td>\n",
+       "      <td>84406B</td>\n",
+       "      <td>CREAM CUPID HEARTS COAT HANGER</td>\n",
+       "      <td>8</td>\n",
+       "      <td>2010-12-01 08:26</td>\n",
+       "      <td>2.75</td>\n",
+       "      <td>17850.0</td>\n",
+       "      <td>United Kingdom</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>536365</td>\n",
+       "      <td>84029G</td>\n",
+       "      <td>KNITTED UNION FLAG HOT WATER BOTTLE</td>\n",
+       "      <td>6</td>\n",
+       "      <td>2010-12-01 08:26</td>\n",
+       "      <td>3.39</td>\n",
+       "      <td>17850.0</td>\n",
+       "      <td>United Kingdom</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>536365</td>\n",
+       "      <td>84029E</td>\n",
+       "      <td>RED WOOLLY HOTTIE WHITE HEART.</td>\n",
+       "      <td>6</td>\n",
+       "      <td>2010-12-01 08:26</td>\n",
+       "      <td>3.39</td>\n",
+       "      <td>17850.0</td>\n",
+       "      <td>United Kingdom</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "  InvoiceNo StockCode                          Description  Quantity       InvoiceDate  UnitPrice  CustomerID         Country\n",
+       "0    536365    85123A   WHITE HANGING HEART T-LIGHT HOLDER         6  2010-12-01 08:26       2.55     17850.0  United Kingdom\n",
+       "1    536365     71053                  WHITE METAL LANTERN         6  2010-12-01 08:26       3.39     17850.0  United Kingdom\n",
+       "2    536365    84406B       CREAM CUPID HEARTS COAT HANGER         8  2010-12-01 08:26       2.75     17850.0  United Kingdom\n",
+       "3    536365    84029G  KNITTED UNION FLAG HOT WATER BOTTLE         6  2010-12-01 08:26       3.39     17850.0  United Kingdom\n",
+       "4    536365    84029E       RED WOOLLY HOTTIE WHITE HEART.         6  2010-12-01 08:26       3.39     17850.0  United Kingdom"
+      ]
+     },
+     "execution_count": 3,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df = pd.read_csv(\"Online+Retail.csv\")\n",
+    "df.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.1 Data preprocessing"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "InvoiceNo       object\n",
+       "StockCode       object\n",
+       "Description     object\n",
+       "Quantity         int64\n",
+       "InvoiceDate     object\n",
+       "UnitPrice      float64\n",
+       "CustomerID     float64\n",
+       "Country         object\n",
+       "dtype: object"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df.dtypes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "InvoiceNo           0\n",
+       "StockCode           0\n",
+       "Description      1454\n",
+       "Quantity            0\n",
+       "InvoiceDate         0\n",
+       "UnitPrice           0\n",
+       "CustomerID     135080\n",
+       "Country             0\n",
+       "dtype: int64"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df.isnull().sum()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Data cleansing\n",
+    "customerID: remove missing values, because the model is built on specific customers.    \n",
+    "Quantity: remove negative records (the data is based on accounting records, positive records have related negative records)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "dfnew = df[(df.Quantity>0) & (df.CustomerID.isnull() == False)]\n",
+    "\n",
+    "dfnew['amt'] = dfnew['Quantity'] * dfnew['UnitPrice']\n",
+    "dfnew['InvoiceDate'] = pd.to_datetime(dfnew['InvoiceDate']).dt.date"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### EDA\n",
+    "- 4339 customers\n",
+    "- 397,924 transactions\n",
+    "- Date: 2010-12-01 to 2011-12-09\n",
+    "- Average CLV: 2053.79, median CLV: 674.45"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "2010-12-01\n",
+      "2011-12-09\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(dfnew['InvoiceDate'].min())\n",
+    "print(dfnew['InvoiceDate'].max())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "4339"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# number of customers\n",
+    "dfnew['CustomerID'].nunique()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(397924, 9)"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# number of transactions\n",
+    "dfnew.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "cust = dfnew.groupby(['CustomerID']).agg({\n",
+    "    'InvoiceNo': 'count',\n",
+    "    'amt': 'sum'\n",
+    "}).reset_index()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th>InvoiceNo</th>\n",
+       "      <th>amt</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>count</th>\n",
+       "      <td>4339.000000</td>\n",
+       "      <td>4339.000000</td>\n",
+       "      <td>4339.000000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>mean</th>\n",
+       "      <td>15299.936852</td>\n",
+       "      <td>91.708689</td>\n",
+       "      <td>2053.793018</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>std</th>\n",
+       "      <td>1721.889758</td>\n",
+       "      <td>228.792852</td>\n",
+       "      <td>8988.248381</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>min</th>\n",
+       "      <td>12346.000000</td>\n",
+       "      <td>1.000000</td>\n",
+       "      <td>0.000000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>25%</th>\n",
+       "      <td>13812.500000</td>\n",
+       "      <td>17.000000</td>\n",
+       "      <td>307.245000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>50%</th>\n",
+       "      <td>15299.000000</td>\n",
+       "      <td>41.000000</td>\n",
+       "      <td>674.450000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>75%</th>\n",
+       "      <td>16778.500000</td>\n",
+       "      <td>100.000000</td>\n",
+       "      <td>1661.640000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>max</th>\n",
+       "      <td>18287.000000</td>\n",
+       "      <td>7847.000000</td>\n",
+       "      <td>280206.020000</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "         CustomerID    InvoiceNo            amt\n",
+       "count   4339.000000  4339.000000    4339.000000\n",
+       "mean   15299.936852    91.708689    2053.793018\n",
+       "std     1721.889758   228.792852    8988.248381\n",
+       "min    12346.000000     1.000000       0.000000\n",
+       "25%    13812.500000    17.000000     307.245000\n",
+       "50%    15299.000000    41.000000     674.450000\n",
+       "75%    16778.500000   100.000000    1661.640000\n",
+       "max    18287.000000  7847.000000  280206.020000"
+      ]
+     },
+     "execution_count": 11,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "cust.describe()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.2 Feature aggregation\n",
+    "The lifetime package is based on transaction data only. For each customer, aggregate:\n",
+    "- recency: days between first and last purchase in the given period.\n",
+    "- frequency: number of repeated purchase in the given period. More precisely, it's the count of days the customer had a repeated purchase on.\n",
+    "- T: customer age, days since first purchase.\n",
+    "- monetary_value: transaction value in the given period."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>frequency</th>\n",
+       "      <th>recency</th>\n",
+       "      <th>T</th>\n",
+       "      <th>monetary_value</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>12346.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>325.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12347.0</th>\n",
+       "      <td>6.0</td>\n",
+       "      <td>365.0</td>\n",
+       "      <td>367.0</td>\n",
+       "      <td>599.701667</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12348.0</th>\n",
+       "      <td>3.0</td>\n",
+       "      <td>283.0</td>\n",
+       "      <td>358.0</td>\n",
+       "      <td>301.480000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12349.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>18.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12350.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>310.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            frequency  recency      T  monetary_value\n",
+       "CustomerID                                           \n",
+       "12346.0           0.0      0.0  325.0        0.000000\n",
+       "12347.0           6.0    365.0  367.0      599.701667\n",
+       "12348.0           3.0    283.0  358.0      301.480000\n",
+       "12349.0           0.0      0.0   18.0        0.000000\n",
+       "12350.0           0.0      0.0  310.0        0.000000"
+      ]
+     },
+     "execution_count": 13,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from lifetimes.plotting import *\n",
+    "from lifetimes.utils import *\n",
+    "\n",
+    "modeldata = summary_data_from_transaction_data(dfnew, 'CustomerID', 'InvoiceDate', \n",
+    "                                               monetary_value_col='amt', \n",
+    "                                               observation_period_end='2011-12-9')\n",
+    "modeldata.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "count    4339.000000\n",
+      "mean        2.864024\n",
+      "std         5.952745\n",
+      "min         0.000000\n",
+      "25%         0.000000\n",
+      "50%         1.000000\n",
+      "75%         3.000000\n",
+      "max       131.000000\n",
+      "Name: frequency, dtype: float64\n",
+      "0.3569946992394561\n"
+     ]
+    },
+    {
+     "data": {
+      
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "modeldata['frequency'].plot(kind='hist', bins=50)\n",
+    "print(modeldata['frequency'].describe())\n",
+    "# frequency=0 means no repeated purchase. 35.7% customers left after one purchase.\n",
+    "print(sum(modeldata['frequency'] == 0)/float(len(modeldata)))"
+   ]
+  },
+  {
+   "attachments": {},
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.3 BG/NBD model\n",
+    "Beta-Geometric/Negative Binomial Distribution Model\n",
+    "#### 1.3.1 Assumptions"
+   ]
+  },
+  {
+  
+    }
+   },
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "3. Users may become inactive after any transaction with probability p and their dropout point is distributed between purchases with Geometric distribution.\n",
+    "![image.png](attachment:image.png)"
+   ]
+  },
+  {
+   },
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "4. Dropout probability p has Beta distribution with the two shape parameters α and β.\n",
+    "![image.png](attachment:image.png)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "5. Transaction rate and dropout probability independently vary across users."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "<lifetimes.BetaGeoFitter: fitted with 4339 subjects, a: 0.00, alpha: 68.89, b: 6.75, r: 0.83>\n"
+     ]
+    }
+   ],
+   "source": [
+    "from lifetimes import BetaGeoFitter\n",
+    "\n",
+    "# penalizer_coef: regularization, to prevent overfitting especially when the dataset is small, can set 0 when dataset is large enough\n",
+    "bgf = BetaGeoFitter(penalizer_coef=0.0)\n",
+    "\n",
+    "# fit BG model on the whole data\n",
+    "bgf.fit(modeldata['frequency'], modeldata['recency'], modeldata['T'])\n",
+    "print(bgf)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 45,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+     
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "mean:  0.0005098191370874716\n",
+      "median:  3.267989632629193e-89\n",
+      "std:  0.008107144035249531\n"
+     ]
+    }
+   ],
+   "source": [
+    "from scipy.stats import gamma, beta\n",
+    "\n",
+    "x = np.arange (0.01, 1, 0.1)\n",
+    "a, b = bgf.params_['a'], bgf.params_['b']\n",
+    "gbd = beta.pdf(x, a, b)\n",
+    "plt.figure(figsize=(6,4))\n",
+    "plt.title('Heterogenity of $p$')\n",
+    "temp = plt.plot(x, gbd)\n",
+    "plt.show()\n",
+    "print('mean: ', beta.mean(a, b))\n",
+    "print('median: ', beta.median(a, b))\n",
+    "print('std: ', beta.std(a, b))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 46,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+     
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "mean:  0.011996297994156649\n",
+      "median:  0.007641762756333042\n",
+      "std:  0.01319603301914138\n"
+     ]
+    }
+   ],
+   "source": [
+    "x = np.arange (0.0001, 0.15, 0.001)\n",
+    "r, alpha = bgf.params_['r'], bgf.params_['alpha']\n",
+    "ggd = gamma.pdf(x, r, scale=1.0/alpha)\n",
+    "plt.figure(figsize=(6,4))\n",
+    "plt.title('Heterogenity of $\\lambda$')\n",
+    "temp = plt.plot(x, ggd)\n",
+    "plt.show()\n",
+    "print('mean: ', gamma.mean(r, scale=1.0/alpha))\n",
+    "print('median: ', gamma.median(r, scale=1.0/alpha))\n",
+    "print('std: ', gamma.std(r, scale=1.0/alpha))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>coef</th>\n",
+       "      <th>se(coef)</th>\n",
+       "      <th>lower 95% bound</th>\n",
+       "      <th>upper 95% bound</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>r</th>\n",
+       "      <td>0.826433</td>\n",
+       "      <td>0.026780</td>\n",
+       "      <td>0.773944</td>\n",
+       "      <td>0.878922</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>alpha</th>\n",
+       "      <td>68.890678</td>\n",
+       "      <td>2.611055</td>\n",
+       "      <td>63.773011</td>\n",
+       "      <td>74.008345</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>a</th>\n",
+       "      <td>0.003443</td>\n",
+       "      <td>0.010347</td>\n",
+       "      <td>-0.016837</td>\n",
+       "      <td>0.023722</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>b</th>\n",
+       "      <td>6.749363</td>\n",
+       "      <td>22.412933</td>\n",
+       "      <td>-37.179985</td>\n",
+       "      <td>50.678711</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            coef   se(coef)  lower 95% bound  upper 95% bound\n",
+       "r       0.826433   0.026780         0.773944         0.878922\n",
+       "alpha  68.890678   2.611055        63.773011        74.008345\n",
+       "a       0.003443   0.010347        -0.016837         0.023722\n",
+       "b       6.749363  22.412933       -37.179985        50.678711"
+      ]
+     },
+     "execution_count": 17,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "bgf.summary"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.2 Frequency-recency matrix"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x1225c2eb8>"
+      ]
+     },
+     "execution_count": 16,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "from lifetimes.plotting import plot_frequency_recency_matrix\n",
+    "\n",
+    "fig = plt.figure(figsize=(12,8))\n",
+    "plot_frequency_recency_matrix(bgf)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Target: expected number of purchase in next 1 day    \n",
+    "X-axis: frequency    \n",
+    "Y-axis: recency    \n",
+    "- Up-right: dark, rare chance of purchase, people have high frequency, but rarely buy things recently, they might quit the product/your business\n",
+    "- Diagonal: blue curve, relatively good customer    \n",
+    "\n",
+    "**Recency is more important than frequency**. People with good recency (bottom) is more likely to buy than people with high frequency but bad recency (up right)."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.3 Churn/Active Probability"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x122304b38>"
+      ]
+     },
+     "execution_count": 15,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "from lifetimes.plotting import plot_probability_alive_matrix\n",
+    "\n",
+    "fig = plt.figure(figsize=(12,8))\n",
+    "plot_probability_alive_matrix(bgf)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "- Up-right: dead/silent\n",
+    "- Bottom-left: high activity. Active probability decrease exponentially with recency (time between first and last purchase) decrease."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.4 Predict future transaction number"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "t = 1  # in the next 1 day\n",
+    "modeldata['predicted_purchases'] = bgf.conditional_expected_number_of_purchases_up_to_time(t, modeldata['frequency'], modeldata['recency'], modeldata['T'])\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>frequency</th>\n",
+       "      <th>recency</th>\n",
+       "      <th>T</th>\n",
+       "      <th>monetary_value</th>\n",
+       "      <th>predicted_purchases</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>14606.0</th>\n",
+       "      <td>88.0</td>\n",
+       "      <td>372.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>135.890114</td>\n",
+       "      <td>0.201005</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>15311.0</th>\n",
+       "      <td>89.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>677.729438</td>\n",
+       "      <td>0.203269</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>17841.0</th>\n",
+       "      <td>111.0</td>\n",
+       "      <td>372.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>364.452162</td>\n",
+       "      <td>0.253053</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12748.0</th>\n",
+       "      <td>113.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>298.360885</td>\n",
+       "      <td>0.257581</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>14911.0</th>\n",
+       "      <td>131.0</td>\n",
+       "      <td>372.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>1093.661679</td>\n",
+       "      <td>0.298312</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            frequency  recency      T  monetary_value  predicted_purchases\n",
+       "CustomerID                                                                \n",
+       "14606.0          88.0    372.0  373.0      135.890114             0.201005\n",
+       "15311.0          89.0    373.0  373.0      677.729438             0.203269\n",
+       "17841.0         111.0    372.0  373.0      364.452162             0.253053\n",
+       "12748.0         113.0    373.0  373.0      298.360885             0.257581\n",
+       "14911.0         131.0    372.0  373.0     1093.661679             0.298312"
+      ]
+     },
+     "execution_count": 18,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Highest 5 customers\n",
+    "modeldata.sort_values(by='predicted_purchases').tail(5)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>frequency</th>\n",
+       "      <th>recency</th>\n",
+       "      <th>T</th>\n",
+       "      <th>monetary_value</th>\n",
+       "      <th>predicted_purchases</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>18074.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.00187</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>16048.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.00187</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>16274.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.00187</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>14237.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.00187</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>14142.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>373.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.00187</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            frequency  recency      T  monetary_value  predicted_purchases\n",
+       "CustomerID                                                                \n",
+       "18074.0           0.0      0.0  373.0             0.0              0.00187\n",
+       "16048.0           0.0      0.0  373.0             0.0              0.00187\n",
+       "16274.0           0.0      0.0  373.0             0.0              0.00187\n",
+       "14237.0           0.0      0.0  373.0             0.0              0.00187\n",
+       "14142.0           0.0      0.0  373.0             0.0              0.00187"
+      ]
+     },
+     "execution_count": 19,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Lowest 5 customers\n",
+    "modeldata.sort_values(by='predicted_purchases').head(5)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.5 Model validation: period transaction plot"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x12244d5f8>"
+      ]
+     },
+     "execution_count": 20,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "from lifetimes.plotting import plot_period_transactions\n",
+    "plot_period_transactions(bgf)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "X-axis: number of transactions in calibration period (whole training data)    \n",
+    "Error: gap between two bars    \n",
+    "\n",
+    "The model is good because:\n",
+    "-\t**accurate**: Gaps between two bars are small\n",
+    "-\t**stable**: Two bars decline consistently.    \n",
+    "If the pattern (two bars) is not declining consistently, the model is not stable.\n",
+    "-\tThere are both positive and negative errors, the error is random.     \n",
+    "If the model prediction is always larger/smaller than actual, the model is not good because the error is not random, there’s still room for the model to be improved."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.6 Model validation: split calibration and holdout sets\n",
+    "Partition data into two parts. Fit the model on calibration (train) set, test on future/holdout."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 47,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "summary_cal_holdout = calibration_and_holdout_data(dfnew, 'CustomerID', 'InvoiceDate',\n",
+    "                                        calibration_period_end='2011-08-31',\n",
+    "                                        observation_period_end='2011-12-09' )"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>frequency_cal</th>\n",
+       "      <th>recency_cal</th>\n",
+       "      <th>T_cal</th>\n",
+       "      <th>frequency_holdout</th>\n",
+       "      <th>duration_holdout</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>12346.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>225.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12347.0</th>\n",
+       "      <td>4.0</td>\n",
+       "      <td>238.0</td>\n",
+       "      <td>267.0</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>100</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12348.0</th>\n",
+       "      <td>2.0</td>\n",
+       "      <td>110.0</td>\n",
+       "      <td>258.0</td>\n",
+       "      <td>1.0</td>\n",
+       "      <td>100</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12350.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>210.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12352.0</th>\n",
+       "      <td>3.0</td>\n",
+       "      <td>34.0</td>\n",
+       "      <td>196.0</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>100</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            frequency_cal  recency_cal  T_cal  frequency_holdout  duration_holdout\n",
+       "CustomerID                                                                        \n",
+       "12346.0               0.0          0.0  225.0                0.0               100\n",
+       "12347.0               4.0        238.0  267.0                2.0               100\n",
+       "12348.0               2.0        110.0  258.0                1.0               100\n",
+       "12350.0               0.0          0.0  210.0                0.0               100\n",
+       "12352.0               3.0         34.0  196.0                3.0               100"
+      ]
+     },
+     "execution_count": 48,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "summary_cal_holdout.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 49,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x117745828>"
+      ]
+     },
+     "execution_count": 49,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "from lifetimes.plotting import plot_calibration_purchases_vs_holdout_purchases\n",
+    "\n",
+    "bgf2 = BetaGeoFitter(penalizer_coef=0.0)\n",
+    "bgf2.fit(summary_cal_holdout['frequency_cal'], summary_cal_holdout['recency_cal'], summary_cal_holdout['T_cal'])\n",
+    "plot_calibration_purchases_vs_holdout_purchases(bgf2, summary_cal_holdout)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The model is good because model prediction (orange line) and true data (blue line) overlap."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 51,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "summary_cal_holdout['predicted_purchases'] = bgf2.conditional_expected_number_of_purchases_up_to_time(100, summary_cal_holdout['frequency_cal'], summary_cal_holdout['recency_cal'], summary_cal_holdout['T_cal'])\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 52,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>frequency_cal</th>\n",
+       "      <th>recency_cal</th>\n",
+       "      <th>T_cal</th>\n",
+       "      <th>frequency_holdout</th>\n",
+       "      <th>duration_holdout</th>\n",
+       "      <th>predicted_purchases</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>12346.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>225.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.248374</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12347.0</th>\n",
+       "      <td>4.0</td>\n",
+       "      <td>238.0</td>\n",
+       "      <td>267.0</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>1.418368</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12348.0</th>\n",
+       "      <td>2.0</td>\n",
+       "      <td>110.0</td>\n",
+       "      <td>258.0</td>\n",
+       "      <td>1.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.840423</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12350.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>210.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.261874</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>12352.0</th>\n",
+       "      <td>3.0</td>\n",
+       "      <td>34.0</td>\n",
+       "      <td>196.0</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>1.421056</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>...</th>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18280.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>177.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.297442</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18281.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>80.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.495104</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18282.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>26.0</td>\n",
+       "      <td>1.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.785817</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18283.0</th>\n",
+       "      <td>7.0</td>\n",
+       "      <td>189.0</td>\n",
+       "      <td>237.0</td>\n",
+       "      <td>6.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>2.549027</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18287.0</th>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>101.0</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>100</td>\n",
+       "      <td>0.432833</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>3317 rows × 6 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "            frequency_cal  recency_cal  T_cal  frequency_holdout  duration_holdout  predicted_purchases\n",
+       "CustomerID                                                                                             \n",
+       "12346.0               0.0          0.0  225.0                0.0               100             0.248374\n",
+       "12347.0               4.0        238.0  267.0                2.0               100             1.418368\n",
+       "12348.0               2.0        110.0  258.0                1.0               100             0.840423\n",
+       "12350.0               0.0          0.0  210.0                0.0               100             0.261874\n",
+       "12352.0               3.0         34.0  196.0                3.0               100             1.421056\n",
+       "...                   ...          ...    ...                ...               ...                  ...\n",
+       "18280.0               0.0          0.0  177.0                0.0               100             0.297442\n",
+       "18281.0               0.0          0.0   80.0                0.0               100             0.495104\n",
+       "18282.0               0.0          0.0   26.0                1.0               100             0.785817\n",
+       "18283.0               7.0        189.0  237.0                6.0               100             2.549027\n",
+       "18287.0               0.0          0.0  101.0                2.0               100             0.432833\n",
+       "\n",
+       "[3317 rows x 6 columns]"
+      ]
+     },
+     "execution_count": 52,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "summary_cal_holdout"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 59,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.metrics import mean_squared_error, r2_score\n",
+    "\n",
+    "def smape(y_true, y_pred):\n",
+    "    difference = abs(y_true - y_pred)\n",
+    "    denominator = (abs(y_true) + abs(y_pred))/2\n",
+    "    return np.mean(np.where(denominator==0, 0, difference/denominator))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 60,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE:  1.6297864600060779\n",
+      "SMAPE 1.2143022906730694\n",
+      "R2:  0.5610201649501331\n"
+     ]
+    }
+   ],
+   "source": [
+    "print('RMSE: ', mean_squared_error(summary_cal_holdout['frequency_holdout'], summary_cal_holdout['predicted_purchases'])**(1/2))\n",
+    "print('SMAPE', smape(summary_cal_holdout['frequency_holdout'], summary_cal_holdout['predicted_purchases']))\n",
+    "print('R2: ', r2_score(summary_cal_holdout['frequency_holdout'], summary_cal_holdout['predicted_purchases']))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0.15170360805212538"
+      ]
+     },
+     "execution_count": 24,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# predict for a specific customer, number of purchase in next 10 days\n",
+    "t = 10\n",
+    "individual = modeldata.loc[12380]\n",
+    "bgf.predict(t, individual['frequency'], individual['recency'], individual['T'])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1.3.7 Historical probability of being alive    \n",
+    "With the CLV model we have created, we can specifically estimate a customer's historical probability of being alive."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x1240dd320>"
+      ]
+     },
+     "execution_count": 26,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Customer 14606\n",
+    "# frequent customer, alive throughout the year.\n",
+    "id = 14606\n",
+    "days_since_birth = 365\n",
+    "sp_trans = dfnew.loc[df['CustomerID'] == id]\n",
+    "plot_history_alive(bgf, days_since_birth, sp_trans, 'InvoiceDate')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x117836940>"
+      ]
+     },
+     "execution_count": 18,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+     
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Customer 12352    \n",
+    "# 6 repeated orders\n",
+    "id = 12352\n",
+    "days_since_birth = 365\n",
+    "sp_trans = dfnew.loc[df['CustomerID'] == id]\n",
+    "plot_history_alive(bgf, days_since_birth, sp_trans, 'InvoiceDate')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.4 Gamma-Gamma model\n",
+    "Predict average monetary value per transaction. If we know the price and historical transactions of a specific customer, then we can apply Gamma-Gamma model to predict most likely monetary value **per transaction** in the future.    \n",
+    "#### Focus on customers with repurchase behavior\n",
+    "Focus on estimating the customers who had at least one repeat purchase. Because customer with only one purchase is very less likely to make additional purchase. It’s difficult to save/wake up these silent customers."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "returning_customers_summary = modeldata[modeldata['frequency']>0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0.6430053007605439"
+      ]
+     },
+     "execution_count": 29,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# 64% customer left\n",
+    "len(returning_customers_summary)/len(modeldata)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "<lifetimes.GammaGammaFitter: fitted with 2790 subjects, p: 2.10, q: 3.45, v: 485.57>\n"
+     ]
+    }
+   ],
+   "source": [
+    "from lifetimes import GammaGammaFitter\n",
+    "\n",
+    "ggf = GammaGammaFitter(penalizer_coef = 0)\n",
+    "ggf.fit(returning_customers_summary['frequency'],\n",
+    "        returning_customers_summary['monetary_value'])\n",
+    "\n",
+    "print(ggf)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "CustomerID\n",
+       "12346.0    416.917667\n",
+       "12347.0    569.988807\n",
+       "12348.0    333.762672\n",
+       "12349.0    416.917667\n",
+       "12350.0    416.917667\n",
+       "12352.0    376.166864\n",
+       "12353.0    416.917667\n",
+       "12354.0    416.917667\n",
+       "12355.0    416.917667\n",
+       "12356.0    324.008941\n",
+       "dtype: float64"
+      ]
+     },
+     "execution_count": 31,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "ggf.conditional_expected_average_profit(modeldata['frequency'], \\\n",
+    "    modeldata['monetary_value']).head(10)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Machine Learning: Xgboost and Lightgbm Algorithm\n",
+    "Features:    \n",
+    "- customerID\n",
+    "- latetime: days between last transaction to now\n",
+    "- earlytime: days between first transaction to now\n",
+    "- freq: transaction frequency (whole history)\n",
+    "- freq_3m: transaction frequency (recent 3 months history)\n",
+    "    \n",
+    "Target: number of transactions in test set"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 63,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0         2010-12-01\n",
+       "1         2010-12-01\n",
+       "2         2010-12-01\n",
+       "3         2010-12-01\n",
+       "4         2010-12-01\n",
+       "             ...    \n",
+       "541904    2011-12-09\n",
+       "541905    2011-12-09\n",
+       "541906    2011-12-09\n",
+       "541907    2011-12-09\n",
+       "541908    2011-12-09\n",
+       "Name: InvoiceDate, Length: 397924, dtype: object"
+      ]
+     },
+     "execution_count": 63,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "dfnew.InvoiceDate"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 64,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import datetime\n",
+    "\n",
+    "dfnew_train = dfnew[dfnew.InvoiceDate <= datetime.date(2011, 8, 31)]\n",
+    "dfnew_test = dfnew[dfnew.InvoiceDate > datetime.date(2011, 8, 31)]\n",
+    "\n",
+    "maxdate = dfnew_train.InvoiceDate.max()\n",
+    "mindate = dfnew_train.InvoiceDate.min()\n",
+    "\n",
+    "dfnew_train['duration'] =  (maxdate - dfnew_train.InvoiceDate)/np.timedelta64(1, 'D')\n",
+    "# get time duration between the last transaction to now\n",
+    "dfsum1 = dfnew_train.groupby(['CustomerID'])['duration'].min().reset_index()\n",
+    "dfsum1.rename(columns = {'duration':'latetime'}, inplace = True)\n",
+    "\n",
+    "# get time duration between the first transaction to now\n",
+    "dfsum2 = dfnew_train.groupby(['CustomerID'])['duration'].max().reset_index()\n",
+    "dfsum2.rename(columns = {'duration':'earlytime'}, inplace = True)\n",
+    "\n",
+    "# get transaction frequency (whole history)\n",
+    "dfsum3 = dfnew_train.groupby(['CustomerID'])['InvoiceDate'].nunique().reset_index()\n",
+    "dfsum3.rename(columns={'InvoiceDate': 'freq'}, inplace=True)\n",
+    "# get transaction frequency (recent 3 months history)\n",
+    "dfsum4 = dfnew_train[dfnew_train.duration<91].groupby(['CustomerID'])['InvoiceDate'].nunique().reset_index()\n",
+    "dfsum4.rename(columns={'InvoiceDate': 'freq_3m'}, inplace=True)\n",
+    "\n",
+    "dfsum = pd.merge(dfsum1, dfsum2, on=['CustomerID'], how='outer')\n",
+    "dfsum = pd.merge(dfsum, dfsum3, on=['CustomerID'], how='outer')\n",
+    "dfsum = pd.merge(dfsum, dfsum4, on=['CustomerID'], how='outer')\n",
+    "\n",
+    "# get target: number of transactions in test set\n",
+    "dfsum_target = dfnew_test.groupby(['CustomerID'])['InvoiceDate'].nunique().reset_index()\n",
+    "dfsum_target.rename(columns={'InvoiceDate': 'target'}, inplace=True)\n",
+    "dfsum = pd.merge(dfsum, dfsum_target, on=['CustomerID'], how='left')\n",
+    "dfsum  = dfsum.fillna(0).sort_values(['target'], ascending = False)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 77,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "count    3317.000000\n",
+       "mean        1.449201\n",
+       "std         2.460220\n",
+       "min         0.000000\n",
+       "25%         0.000000\n",
+       "50%         1.000000\n",
+       "75%         2.000000\n",
+       "max        52.000000\n",
+       "Name: target, dtype: float64"
+      ]
+     },
+     "execution_count": 77,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "dfsum['target'].describe()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 78,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>CustomerID</th>\n",
+       "      <th>latetime</th>\n",
+       "      <th>earlytime</th>\n",
+       "      <th>freq</th>\n",
+       "      <th>freq_3m</th>\n",
+       "      <th>target</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>1463</th>\n",
+       "      <td>14911.0</td>\n",
+       "      <td>5.0</td>\n",
+       "      <td>273.0</td>\n",
+       "      <td>80</td>\n",
+       "      <td>33.0</td>\n",
+       "      <td>52.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>249</th>\n",
+       "      <td>12748.0</td>\n",
+       "      <td>1.0</td>\n",
+       "      <td>273.0</td>\n",
+       "      <td>70</td>\n",
+       "      <td>29.0</td>\n",
+       "      <td>44.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3065</th>\n",
+       "      <td>17841.0</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>273.0</td>\n",
+       "      <td>73</td>\n",
+       "      <td>29.0</td>\n",
+       "      <td>39.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1694</th>\n",
+       "      <td>15311.0</td>\n",
+       "      <td>12.0</td>\n",
+       "      <td>273.0</td>\n",
+       "      <td>62</td>\n",
+       "      <td>20.0</td>\n",
+       "      <td>28.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1292</th>\n",
+       "      <td>14606.0</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>273.0</td>\n",
+       "      <td>65</td>\n",
+       "      <td>19.0</td>\n",
+       "      <td>24.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>366</th>\n",
+       "      <td>12971.0</td>\n",
+       "      <td>7.0</td>\n",
+       "      <td>272.0</td>\n",
+       "      <td>50</td>\n",
+       "      <td>17.0</td>\n",
+       "      <td>21.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>434</th>\n",
+       "      <td>13089.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>269.0</td>\n",
+       "      <td>47</td>\n",
+       "      <td>13.0</td>\n",
+       "      <td>19.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>134</th>\n",
+       "      <td>12569.0</td>\n",
+       "      <td>7.0</td>\n",
+       "      <td>152.0</td>\n",
+       "      <td>10</td>\n",
+       "      <td>6.0</td>\n",
+       "      <td>16.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1315</th>\n",
+       "      <td>14646.0</td>\n",
+       "      <td>5.0</td>\n",
+       "      <td>254.0</td>\n",
+       "      <td>29</td>\n",
+       "      <td>9.0</td>\n",
+       "      <td>16.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1248</th>\n",
+       "      <td>14527.0</td>\n",
+       "      <td>7.0</td>\n",
+       "      <td>269.0</td>\n",
+       "      <td>38</td>\n",
+       "      <td>13.0</td>\n",
+       "      <td>16.0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "      CustomerID  latetime  earlytime  freq  freq_3m  target\n",
+       "1463     14911.0       5.0      273.0    80     33.0    52.0\n",
+       "249      12748.0       1.0      273.0    70     29.0    44.0\n",
+       "3065     17841.0       3.0      273.0    73     29.0    39.0\n",
+       "1694     15311.0      12.0      273.0    62     20.0    28.0\n",
+       "1292     14606.0       3.0      273.0    65     19.0    24.0\n",
+       "366      12971.0       7.0      272.0    50     17.0    21.0\n",
+       "434      13089.0       0.0      269.0    47     13.0    19.0\n",
+       "134      12569.0       7.0      152.0    10      6.0    16.0\n",
+       "1315     14646.0       5.0      254.0    29      9.0    16.0\n",
+       "1248     14527.0       7.0      269.0    38     13.0    16.0"
+      ]
+     },
+     "execution_count": 78,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "dfsum.head(10)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### xgb model"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 79,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "XGBRegressor(base_score=0.5, booster='gbtree', colsample_bylevel=1,\n",
+       "             colsample_bytree=1, gamma=0, learning_rate=0.1, max_delta_step=0,\n",
+       "             max_depth=3, min_child_weight=1, missing=None, n_estimators=2200,\n",
+       "             n_jobs=1, nthread=None, objective='reg:linear', random_state=0,\n",
+       "             reg_alpha=0, reg_lambda=1, scale_pos_weight=1, seed=None,\n",
+       "             silent=True, subsample=1)"
+      ]
+     },
+     "execution_count": 79,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "import xgboost as xgb\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.metrics import mean_squared_error\n",
+    "\n",
+    "xgb_model = xgb.XGBRegressor(n_estimators=2200, objective='reg:linear', max_depth = 3)\n",
+    " \n",
+    "predictors = ['latetime','earlytime', 'freq','freq_3m']\n",
+    "X = dfsum[predictors]\n",
+    "y = dfsum.target\n",
+    "\n",
+    "x_trains, x_valids, y_train, y_valid = train_test_split(X, y, test_size=0.3, random_state=12)\n",
+    "\n",
+    "xgb_model.fit(x_trains, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 80,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE on test set:  1.789839681695472\n"
+     ]
+    }
+   ],
+   "source": [
+    "y_pred = xgb_model.predict(x_valids)\n",
+    "rmse = mean_squared_error(y_valid, y_pred)**(1/2)\n",
+    "print('RMSE on test set: ', rmse)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 87,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE:  0.9432251152502583\n",
+      "SMAPE 1.0779295245501\n",
+      "R2:  0.8529673202695269\n"
+     ]
+    }
+   ],
+   "source": [
+    "xgb_model2 = xgb.XGBRegressor(n_estimators=2200, objective='reg:linear', max_depth = 3)\n",
+    "xgb_model2.fit(X, y)\n",
+    "y_pred2 = xgb_model2.predict(X)\n",
+    "print('RMSE: ', mean_squared_error(y, y_pred2)**(1/2))\n",
+    "print('SMAPE', smape(y, y_pred2))\n",
+    "print('R2: ', r2_score(y, y_pred2))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Feature importance\n",
+    "importance_type:\n",
+    "- ‘weight’ - the number of times a feature is used to split the data across all trees.\n",
+    "- ‘gain’ - the average gain across all splits the feature is used in. most popular way.\n",
+    "- ‘cover’ - the average coverage across all splits the feature is used in. (yes/no proportion)\n",
+    "- ‘total_gain’ - the total gain across all splits the feature is used in.\n",
+    "- ‘total_cover’ - the total coverage across all splits the feature is used in."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 81,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x11b676dd8>"
+      ]
+     },
+     "execution_count": 81,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "xgb.plot_importance(xgb_model, importance_type='gain')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 82,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x117625518>"
+      ]
+     },
+     "execution_count": 82,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "xgb.plot_importance(xgb_model, importance_type='weight')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### lgb model"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 83,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "LGBMRegressor(boosting_type='gbdt', class_weight=None, colsample_bytree=1.0,\n",
+       "              importance_type='split', learning_rate=0.02, max_depth=3,\n",
+       "              metric='mse', min_child_samples=20, min_child_weight=0.001,\n",
+       "              min_split_gain=0.0, n_estimators=2200, n_jobs=-1, num_leaves=31,\n",
+       "              objective='regression', random_state=None, reg_alpha=0.0,\n",
+       "              reg_lambda=0.0, silent=True, subsample=1.0,\n",
+       "              subsample_for_bin=200000, subsample_freq=0)"
+      ]
+     },
+     "execution_count": 83,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "import lightgbm as lgb\n",
+    "\n",
+    "lgbparams = {\n",
+    "    'n_estimators': 2200, \n",
+    "    'boosting_type': 'gbdt',\n",
+    "    'objective': 'regression',\n",
+    "    'metric': 'mse',    \n",
+    "    'max_depth': 3, \n",
+    "    'learning_rate': 0.02\n",
+    "}\n",
+    "\n",
+    "lgb_model = lgb.LGBMRegressor(**lgbparams)\n",
+    " \n",
+    "predictors = ['latetime','earlytime', 'freq','freq_3m']\n",
+    "X = dfsum[predictors]\n",
+    "y = dfsum.target\n",
+    "\n",
+    "x_trains, x_valids, y_train, y_valid = train_test_split(X, y, test_size=0.3, random_state=12)\n",
+    "\n",
+    "lgb_model.fit(x_trains, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 84,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE on test set:  1.557216855982251\n"
+     ]
+    }
+   ],
+   "source": [
+    "y_pred = lgb_model.predict(x_valids)\n",
+    "rmse = mean_squared_error(y_valid, y_pred)**(1/2)\n",
+    "print('RMSE on test set: ', rmse)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 85,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x11ba26898>"
+      ]
+     },
+     "execution_count": 85,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+      
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "lgb.plot_importance(lgb_model, importance_type='gain')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 86,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<matplotlib.axes._subplots.AxesSubplot at 0x11ba26ac8>"
+      ]
+     },
+     "execution_count": 86,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "data": {
+     
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "lgb.plot_importance(lgb_model) # defualt: weight"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 88,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE:  1.373259592334425\n",
+      "SMAPE 1.1109920509253797\n",
+      "R2:  0.6883347065146813\n"
+     ]
+    }
+   ],
+   "source": [
+    "lgb_model2 = lgb.LGBMRegressor(**lgbparams)\n",
+    "lgb_model2.fit(X, y)\n",
+    "y_pred3 = lgb_model2.predict(X)\n",
+    "print('RMSE: ', mean_squared_error(y, y_pred3)**(1/2))\n",
+    "print('SMAPE', smape(y, y_pred3))\n",
+    "print('R2: ', r2_score(y, y_pred3))"
+   ]
+  },
+  {
+   "attachments": {},
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Probabilistic Modeling vs Machine Learning\n",
+    "**BG/NBD Model**\n",
+    "- RMSE:  1.6298\n",
+    "- R2:  0.5610\n",
+    "    \n",
+    "**Xgboost**\n",
+    "- RMSE:  0.9432\n",
+    "- R2:  0.8530\n",
+    "\n",
+    "### Disadvantages of Probabilistic Model\n",
+    "- Only use transaction features. No capability to add other important features like age, gender, education, price, trading behaviors.\n",
+    "- Not accurate. The model is built on strong assumptions, which might not be accurate in practical application. True data often doesn’t follow the distribution. "
+   ]
+  },
+  {
+   
+    }
+   },
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Recommendations\n",
+    "- **Champions**: recent, frequent, heavy spenders.     \n",
+    "    Reward these customers. They can become early adopters for new products and will help promote your brand.\n",
+    "- **Potential Loyalists**: recent, average frequency and spent a good amount.     \n",
+    "    Offer membership or loyalty programs or recommend related products to upsell them and help them become your Loyalists or Champions.\n",
+    "- **Can’t Lose Them**: used to be frequent, heavy spenders, but haven’t been visiting recently.     \n",
+    "    Bring them back with relevant promotions. Run surveys to find out what went wrong and avoid losing them to a competitor.\n",
+    "- **New Customers**: recent, spent a good amount, but not frequent shoppers.     \n",
+    "    Start building relationships with these customers by providing special offers to increase their visits.\n",
+    "\n",
+    "https://clevertap.com/blog/rfm-analysis/"
+   ]
+  },
+  {
+   "attachments": {},
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## References\n",
+    "[1] BG/NBD Model    \n",
+    "https://medium.com/bolt-labs/understanding-the-customer-lifetime-value-with-data-science-c14dcafa0364    \n",
+    "[2] RFM Analysis    \n",
+    "https://www.putler.com/rfm-analysis/    \n",
+    "https://clevertap.com/blog/rfm-analysis/"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
